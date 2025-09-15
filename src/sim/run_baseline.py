@@ -103,6 +103,33 @@ def print_results(metrics, logger):
     logger.info(f"Average travel time per vehicle: {metrics['avg_travel_time']:.2f} s")
     logger.info("===========================================\n")
 
+def save_results_json(metrics, steps, logger):
+    """
+    Save simulation results to a JSON file for dashboard consumption (app.py).
+    """
+    import json
+    from datetime import datetime
+    # Compose output dict with required keys for dashboard
+    output = {
+        "total_vehicles_departed": metrics["departed"],
+        "total_vehicles_arrived": metrics["arrived"],
+        "avg_waiting_time_per_step": metrics["avg_waiting_time"],
+        "total_travel_time": metrics["total_travel_time"],
+        "avg_travel_time_per_vehicle": metrics["avg_travel_time"],
+        "simulation_steps": steps,
+        "timestamp": datetime.now().isoformat()
+    }
+    # Path: logs/baseline_results.json (configurable)
+    log_dir = CONFIG.get("log_dir", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    out_path = os.path.join(log_dir, "baseline_results.json")
+    try:
+        with open(out_path, "w") as f:
+            json.dump(output, f, indent=2)
+        logger.info(f"Saved baseline results to {out_path}")
+    except Exception as e:
+        logger.warning(f"Could not save baseline results to {out_path}: {e}")
+
 def main():
     """
     Main function to run the baseline SUMO simulation.
@@ -151,8 +178,10 @@ def main():
         metrics = run_simulation(traci_conn, steps, logger)
     finally:
         traci_conn.close()
-    
+
     print_results(metrics, logger)
+    # Save results for dashboard (app.py)
+    save_results_json(metrics, steps, logger)
 
 if __name__ == "__main__":
     main()
