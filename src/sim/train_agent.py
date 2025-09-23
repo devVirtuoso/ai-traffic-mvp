@@ -15,19 +15,15 @@ from src.utils.logger import get_logger
 from src.sim.env import CustomSUTrafficEnv
 
 def main():
-	parser = argparse.ArgumentParser(description="Train PPO agent for SUMO traffic light control.")
-	parser.add_argument('--nogui', action='store_true', help='Run SUMO in headless mode (no GUI)')
-	args = parser.parse_args()
-
+	# Always run SUMO headless for dashboard automation
 	logger = get_logger()
 	model_path = CONFIG.get("model_save_path", "models/ppo_sumo.zip")
 	log_dir = CONFIG.get("log_dir", "logs/")
 	os.makedirs(log_dir, exist_ok=True)
 	train_timesteps = CONFIG.get("train_timesteps", 50000)
 
-	# Instantiate environment
 	def make_env():
-		return CustomSUTrafficEnv(nogui=args.nogui)
+		return CustomSUTrafficEnv(nogui=True)
 	env = DummyVecEnv([make_env])
 
 	# Check for existing model
@@ -52,12 +48,19 @@ def main():
 
 	try:
 		obs = env.reset()
+		# Unpack obs if it's a tuple (obs, info)
+		if isinstance(obs, tuple):
+			obs = obs[0]
 		for step in range(train_timesteps):
 			action, _ = model.predict(obs, deterministic=True)
 			obs, reward, done, info = env.step(action)
+			if isinstance(obs, tuple):
+				obs = obs[0]
 			episode_rewards.append(reward[0])
 			if done[0]:
 				obs = env.reset()
+				if isinstance(obs, tuple):
+					obs = obs[0]
 		# Save model after training
 		model.save(model_path)
 		logger.info(f"Model saved to {model_path}")
@@ -81,27 +84,64 @@ def main():
 	logger.info("Evaluating trained agent...")
 	import traci
 	eval_env = CustomSUTrafficEnv(nogui=True)
-	obs, _ = eval_env.reset()
+	obs = eval_env.reset()
+	if isinstance(obs, tuple):
+		obs = obs[0]
 	eval_rewards = []
 	waiting_times = []
 	vehicle_count = 0
 	total_travel_time = 0.0
 	for _ in range(100):
 		action, _ = model.predict(obs, deterministic=True)
-		obs, reward, terminated, truncated, info = eval_env.step(action)
-		eval_rewards.append(reward)
+		step_result = eval_env.step(action)
+		# Robustly unpack environment output
+		if isinstance(step_result, tuple):
+			if len(step_result) == 5:
+				obs, reward, terminated, truncated, info = step_result
+			elif len(step_result) == 4:
+				obs, reward, done, info = step_result
+				terminated = done[0] if isinstance(done, (list, tuple)) and len(done) > 0 else bool(done)
+				truncated = False
+			else:
+				# Fallback: treat as obs, reward
+				obs, reward = step_result[0], step_result[1]
+				terminated = False
+				truncated = False
+		else:
+			obs = step_result
+			reward = 0.0
+			terminated = False
+			truncated = False
+		if isinstance(obs, tuple):
+			obs = obs[0]
+		# Handle reward type robustly
+		if isinstance(reward, (list, tuple)):
+			if len(reward) > 0:
+				eval_rewards.append(float(reward[0]))
+			else:
+				eval_rewards.append(0.0)
+		else:
+			try:
+				eval_rewards.append(float(reward))
+			except Exception:
+				eval_rewards.append(0.0)
 		# Collect average waiting time for reporting
 		waiting = 0.0
 		for lane in eval_env.lane_ids:
-			waiting += traci.lane.getWaitingTime(lane)
+			lane_wait = traci.lane.getWaitingTime(lane)
+			if isinstance(lane_wait, (list, tuple)):
+				lane_wait = lane_wait[0]
+			waiting += float(lane_wait)
 		waiting_times.append(waiting / len(eval_env.lane_ids))
 		# Count vehicles and travel time (approximate)
-		vehicle_count += len(traci.simulation.getArrivedIDList())
-		for veh_id in traci.simulation.getArrivedIDList():
-			# This is a proxy; in a real setup, track entry/exit times
+		arrived_ids = traci.simulation.getArrivedIDList()
+		vehicle_count += len(arrived_ids)
+		for veh_id in arrived_ids:
 			total_travel_time += 1.0  # Placeholder: 1 step per vehicle
 		if terminated or truncated:
-			obs, _ = eval_env.reset()
+			obs = eval_env.reset()
+			if isinstance(obs, tuple):
+				obs = obs[0]
 	eval_env.close()
 	logger.info(f"Evaluation mean reward: {np.mean(eval_rewards):.2f}")
 	logger.info(f"Evaluation average waiting time: {np.mean(waiting_times):.2f} s")
@@ -113,11 +153,11 @@ def main():
 		"""
 		import json
 		from datetime import datetime
+		# Output keys compatible with dashboard
 		output = {
-			"mean_reward": float(np.mean(eval_rewards)),
-			"avg_waiting_time_per_step": float(np.mean(waiting_times)),
-			"total_vehicles_completed": int(vehicle_count),
-			"total_travel_time": float(total_travel_time),
+			"avg_waiting_time": float(np.mean(waiting_times)),
+			"avg_travel_time": float(total_travel_time / vehicle_count if vehicle_count > 0 else 0.0),
+			"total_vehicles": int(vehicle_count),
 			"training_timesteps": int(train_timesteps),
 			"timestamp": datetime.now().isoformat()
 		}

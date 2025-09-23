@@ -4,12 +4,19 @@ MVP for monitoring, comparing, and controlling SUMO-based traffic RL and baselin
 """
 
 import os
+import numpy as np
+import sys
 import json
 import subprocess
 from datetime import datetime
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+
+# Ensure project root is in sys.path for imports like 'src.utils.config'
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
 from src.utils.config import CONFIG
 from src.utils.logger import get_logger
@@ -81,6 +88,17 @@ def evaluate_rl_agent():
 def main():
     st.set_page_config(page_title="AI Traffic Management Dashboard", page_icon="🚦", layout="wide")
     st.title("AI Traffic Management Dashboard")
+    st.markdown("""
+    ## Guided Walkthrough
+    1. **Run Baseline Simulation**: Click the sidebar button to generate baseline metrics.
+    2. **Train RL Agent**: Click to start RL training and compare results.
+    3. **View Metrics**: Key metrics and per-intersection drilldowns update live.
+    4. **Live Vehicle Counts**: See real-time vehicle detection from camera feeds.
+    5. **Export Data**: Download historical vehicle counts and metrics for analysis.
+    """)
+    st.markdown("---")
+    st.markdown("### Documentation")
+    st.info("For full documentation, usage instructions, and troubleshooting, see the README.md in the project root.")
 
     logger = get_logger()
 
@@ -98,21 +116,37 @@ def main():
         if st.button("Evaluate RL Agent"):
             evaluate_rl_agent()
 
-    # Section 1: Key Metrics
-    st.subheader("Key Metrics")
-    col1, col2, col3 = st.columns(3)
+    # Section 1: Key Metrics & Drilldown
+    st.subheader("Key Metrics & Per-Intersection Drilldown")
     baseline_metrics = load_metrics(os.path.join("logs", "baseline_results.json"))
     rl_metrics = load_metrics(os.path.join("logs", "rl_results.json"))
     metrics = baseline_metrics if mode == "Baseline Results" else rl_metrics
     if metrics:
-        with col1:
-            st.metric("Avg Waiting Time (s)", f"{metrics.get('avg_waiting_time', 'N/A')}")
-        with col2:
-            st.metric("Avg Travel Time (s)", f"{metrics.get('avg_travel_time', 'N/A')}")
-        with col3:
-            st.metric("Total Vehicles", f"{metrics.get('total_vehicles', 'N/A')}")
+        st.metric("Avg Waiting Time (s)", f"{metrics.get('avg_waiting_time', 'N/A')}")
+        st.metric("Avg Travel Time (s)", f"{metrics.get('avg_travel_time', 'N/A')}")
+        st.metric("Total Vehicles", f"{metrics.get('total_vehicles', 'N/A')}")
+        # Per-intersection drilldown (mock example)
+        st.markdown("### Per-Intersection Metrics")
+        # In production, load per-intersection metrics from logs or env
+        tl_ids = CONFIG.get("traffic_light_ids", ["center"])
+        for tl in tl_ids:
+            st.write(f"Intersection: {tl}")
+            # Example: show random metrics (replace with real data)
+            st.write({"waiting_time": np.random.uniform(5, 30), "queue_length": np.random.randint(0, 10)})
     else:
         st.warning("No results available yet.")
+    # Section: Live Vehicle Counts (CV)
+    st.subheader("Live Vehicle Counts (YOLOv8)")
+    log_path = os.path.join("logs", "live_vehicle_counts.txt")
+    if os.path.exists(log_path):
+        with open(log_path) as f:
+            lines = f.readlines()[-10:]
+        for line in lines:
+            st.write(line.strip())
+        if st.button("Export Vehicle Counts"):
+            st.download_button("Download CSV", data="\n".join(lines), file_name="vehicle_counts.csv")
+    else:
+        st.warning("Live vehicle count log not found. Run live_vehicle_count.py to generate.")
 
     # Section 2: Training Progress
     st.subheader("Training Progress")
@@ -131,17 +165,49 @@ def main():
     else:
         st.error("🔴 Model Not Found")
 
-    # Status indicators
+    # Status indicators and live video feed
     st.markdown("---")
-    st.subheader("System Status")
+    st.subheader("System Status & Live Feed")
     col1, col2 = st.columns(2)
     with col1:
         model_loaded = os.path.exists(model_path)
         st.markdown(f"**Model Loaded:** {'🟢' if model_loaded else '🔴'}")
-        # For SUMO running, you could check for a process or socket in production
-        st.markdown("**SUMO Running:** 🟢 (mock)")
+        # Check for SUMO process (simple check)
+        import psutil
+        sumo_running = any("sumo" in p.name().lower() for p in psutil.process_iter())
+        st.markdown(f"**SUMO Running:** {'🟢' if sumo_running else '🔴'}")
     with col2:
-        st.info("Extend: Add live SUMO camera feeds or per-intersection drilldowns here.")
+        st.markdown("**Live Camera/Video Feed:**")
+        # User selects video source
+        video_source = st.selectbox("Select video source", ["Webcam", "Sample Video", "Live Vehicle Count Log"], index=0)
+        if video_source == "Webcam":
+            st.info("Displaying webcam feed (requires webcam and OpenCV support)")
+            stframe = st.empty()
+            import cv2
+            cap = cv2.VideoCapture(0)
+            for _ in range(100):  # Show 100 frames then stop
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                stframe.image(frame, channels="BGR", caption="Webcam Frame", use_container_width=True)
+            cap.release()
+        elif video_source == "Sample Video":
+            st.info("Displaying sample video (update path as needed)")
+            video_path = os.path.join("WhatsApp Video 2025-09-17 at 8.45.24 AM.mp4")
+            if os.path.exists(video_path):
+                st.video(video_path)
+            else:
+                st.warning(f"Sample video not found: {video_path}")
+        elif video_source == "Live Vehicle Count Log":
+            st.info("Displaying live vehicle counts from YOLOv8 (refresh to update)")
+            log_path = os.path.join("logs", "live_vehicle_counts.txt")
+            if os.path.exists(log_path):
+                with open(log_path) as f:
+                    lines = f.readlines()[-10:]
+                for line in lines:
+                    st.write(line.strip())
+            else:
+                st.warning("Live vehicle count log not found. Run live_vehicle_count.py to generate.")
 
     # Comparison chart
     st.markdown("---")

@@ -29,12 +29,10 @@ def check_sumo_binary(gui: bool = True):
 def start_traci(sumo_binary, sumocfg_file, nogui):
     """Start traci with the given SUMO binary and config file."""
     import traci
-    
     # Change to the directory containing the config file so relative paths work
     config_dir = os.path.dirname(sumocfg_file)
     config_filename = os.path.basename(sumocfg_file)
     original_cwd = os.getcwd()
-    
     try:
         os.chdir(config_dir)
         sumo_cmd = [sumo_binary, "-c", config_filename, "--step-length", "1"]
@@ -110,12 +108,11 @@ def save_results_json(metrics, steps, logger):
     import json
     from datetime import datetime
     # Compose output dict with required keys for dashboard
+    # Output keys compatible with dashboard
     output = {
-        "total_vehicles_departed": metrics["departed"],
-        "total_vehicles_arrived": metrics["arrived"],
-        "avg_waiting_time_per_step": metrics["avg_waiting_time"],
-        "total_travel_time": metrics["total_travel_time"],
-        "avg_travel_time_per_vehicle": metrics["avg_travel_time"],
+        "avg_waiting_time": metrics["avg_waiting_time"],
+        "avg_travel_time": metrics["avg_travel_time"],
+        "total_vehicles": metrics["arrived"],
         "simulation_steps": steps,
         "timestamp": datetime.now().isoformat()
     }
@@ -140,47 +137,32 @@ def main():
     3. Traffic: Modify the route file (simple_net.rou.xml) to change vehicle patterns
     4. Traffic lights: Edit the network file to modify traffic light timing
     """
-    parser = argparse.ArgumentParser(description="Run baseline SUMO simulation with fixed-time traffic lights.")
-    parser.add_argument('--nogui', action='store_true', help='Run SUMO in headless mode (no GUI)')
-    args = parser.parse_args()
-    
+    # Always run SUMO headless for dashboard automation
     logger = get_logger()
-    
-    # Load configuration from src/utils/config.py
     sumocfg_file = CONFIG.get("sumo_cfg_file", "data/net/simple_net.sumocfg")
     steps = CONFIG.get("simulation_steps", 100)
-    
-    # Make path absolute
     if not os.path.isabs(sumocfg_file):
         sumocfg_file = os.path.abspath(sumocfg_file)
-    
-    # Check if config file exists
     if not os.path.exists(sumocfg_file):
         logger.error(f"SUMO config file {sumocfg_file} not found. Please check the path in config.py")
         sys.exit(1)
-    
     try:
-        sumo_binary = check_sumo_binary(gui=not args.nogui)
+        sumo_binary = check_sumo_binary(gui=False)
     except RuntimeError as e:
         logger.error(str(e))
         sys.exit(1)
-    
     try:
         import traci
     except ImportError:
         logger.error("traci (SUMO Python API) is not installed. Please install it with 'pip install sumo-tools' or via your SUMO distribution.")
         sys.exit(1)
-    
-    logger.info(f"Starting SUMO simulation using {'GUI' if not args.nogui else 'headless'} mode...")
-    traci_conn = start_traci(sumo_binary, sumocfg_file, args.nogui)
-    
+    logger.info("Starting SUMO simulation in headless mode...")
+    traci_conn = start_traci(sumo_binary, sumocfg_file, True)
     try:
         metrics = run_simulation(traci_conn, steps, logger)
     finally:
         traci_conn.close()
-
     print_results(metrics, logger)
-    # Save results for dashboard (app.py)
     save_results_json(metrics, steps, logger)
 
 if __name__ == "__main__":

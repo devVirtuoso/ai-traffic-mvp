@@ -20,21 +20,23 @@ class CustomSUTrafficEnv(gym.Env):
 	"""
 	metadata = {"render.modes": ["human"]}
 
-	def __init__(self, nogui=True):
+	def __init__(self, nogui=True, use_cv=False):
 		super().__init__()
 		self.logger = get_logger()
 		self.nogui = nogui
+		self.use_cv = use_cv
 		self.sumo_cfg = CONFIG.get("sumo_cfg_file", "data/net/simple_net.sumocfg")
 		self.sim_steps = CONFIG.get("simulation_steps", 100)
 		self.current_step = 0
-		self.tl_id = CONFIG.get("traffic_light_id", "center")  # traffic light id in net
-		self.lane_ids = CONFIG.get("lane_ids", ["north2center_0", "south2center_0", "east2center_0", "west2center_0"])  # incoming lanes
+		self.tl_ids = CONFIG.get("traffic_light_ids", ["center"])  # list of traffic light ids
+		self.lane_ids = CONFIG.get("lane_ids", ["north2center_0", "south2center_0", "east2center_0", "west2center_0"])  # all incoming lanes
 		self._start_sumo()
 
-		# Action: 0 or 1 (2 phases)
-		self.action_space = spaces.Discrete(2)
-		# Observation: vehicle count per lane (normalized to [0,1])
-		self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(len(self.lane_ids),), dtype=np.float32)
+		# Action: one phase per traffic light (0=NS-green/EW-red, 1=EW-green/NS-red)
+		self.action_space = spaces.MultiDiscrete([2] * len(self.tl_ids))
+		# Observation: vehicle count per lane (normalized to [0,1]), plus CV count if enabled
+		obs_dim = len(self.lane_ids) + (1 if self.use_cv else 0)
+		self.observation_space = spaces.Box(low=0.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
 
 	def _start_sumo(self):
 		"""Start SUMO (headless or GUI) and connect via traci."""
@@ -60,33 +62,76 @@ class CustomSUTrafficEnv(gym.Env):
 		return obs, info
 
 	def _get_obs(self):
-		"""Get normalized vehicle count for each incoming lane."""
+		"""Get normalized vehicle count for each incoming lane, plus CV count if enabled."""
 		obs = []
 		for lane in self.lane_ids:
 			count = traci.lane.getLastStepVehicleNumber(lane)
-			# Normalize by a reasonable max (e.g., 10 vehicles)
+			if isinstance(count, tuple):
+				count = count[0]
+			count = float(count)
 			obs.append(min(count / 10.0, 1.0))
+		# Optionally add live vehicle count from CV
+		if self.use_cv:
+			cv_count = self._get_cv_vehicle_count()
+			obs.append(min(cv_count / 20.0, 1.0))  # Normalize by max 20 vehicles
 		return np.array(obs, dtype=np.float32)
+
+	def _get_cv_vehicle_count(self):
+		"""Read latest vehicle count from logs/live_vehicle_counts.txt (YOLOv8 output)."""
+		log_path = os.path.join("logs", "live_vehicle_counts.txt")
+		if not os.path.exists(log_path):
+			return 0.0
+		try:
+			with open(log_path, "r") as f:
+				last_line = f.readlines()[-1]
+			parts = last_line.strip().split(",")
+			if len(parts) >= 2:
+				return float(parts[1])
+		except Exception:
+			return 0.0
+		return 0.0
 
 	def step(self, action):
 		"""
-		Set traffic light phase, advance SUMO, compute reward.
-		Reward = -sum of lane waiting times (minimize congestion)
+		Set traffic light phases for all intersections, advance SUMO, compute reward.
+		Enhanced reward: aggregate metrics across all intersections.
 		"""
-		# Set phase: 0=NS-green/EW-red, 1=EW-green/NS-red
-		traci.trafficlight.setPhase(self.tl_id, int(action))
+		# Set phase for each traffic light
+		if not isinstance(action, (list, np.ndarray)):
+			action = [action] * len(self.tl_ids)
+		for idx, tl in enumerate(self.tl_ids):
+			traci.trafficlight.setPhase(tl, int(action[idx]))
 		traci.simulationStep()
 		self.current_step += 1
 
-		# Compute reward: negative sum of waiting times on all incoming lanes
-		reward = 0.0
+		# Aggregate metrics for all lanes
+		total_waiting = 0.0
+		total_queue = 0.0
 		for lane in self.lane_ids:
-			reward -= traci.lane.getWaitingTime(lane)
+			waiting = traci.lane.getWaitingTime(lane)
+			queue = traci.lane.getLastStepHaltingNumber(lane)
+			if isinstance(waiting, tuple):
+				waiting = waiting[0]
+			if isinstance(queue, tuple):
+				queue = queue[0]
+			total_waiting += float(waiting)
+			total_queue += float(queue)
+		arrived = len(traci.simulation.getArrivedIDList())
+
+		# Refined reward function (example: penalize congestion, prioritize throughput)
+		reward = -0.7 * total_waiting - 0.2 * total_queue + 0.1 * arrived
+
+		info = {
+			"step": self.current_step,
+			"waiting_time": total_waiting,
+			"queue_length": total_queue,
+			"arrived": arrived,
+			"reward": reward
+		}
 
 		obs = self._get_obs()
 		terminated = self.current_step >= self.sim_steps
 		truncated = False
-		info = {}
 		return obs, reward, terminated, truncated, info
 
 	def close(self):

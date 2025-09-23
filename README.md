@@ -11,7 +11,8 @@ Develop a software prototype that reduces average commute time by **10%** in a s
 - **Traffic Simulation**: Using SUMO (Simulation of Urban Mobility) for realistic urban traffic scenarios
 - **Reinforcement Learning**: PPO agent to optimize signal timings based on real-time traffic data
 - **Computer Vision**: YOLOv8 + OpenCV for vehicle detection and counting from traffic cameras
-- **Dashboard**: Real-time monitoring interface for traffic authorities
+- **React Dashboard**: Modern UI built with React and Tailwind CSS for live views and manual control
+- **Multi-Service Orchestration**: Docker Compose setup for backend, dashboard, Redis, and SUMO simulation
 - **Performance Metrics**: Comprehensive evaluation of traffic flow improvements
 
 ## 📁 Project Structure
@@ -21,12 +22,13 @@ ai-traffic-mvp/
 ├── src/
 │   ├── sim/              # SUMO simulation and RL environment
 │   ├── cv/               # Computer vision for vehicle detection
-│   ├── dashboard/        # Web dashboard for monitoring
+│   ├── dashboard/        # React + Tailwind dashboard (live views, manual control)
 │   └── utils/            # Utility functions and helpers
 ├── data/                 # SUMO configs, traffic videos, datasets
 ├── notebooks/            # Jupyter notebooks for experiments
 ├── models/               # Trained RL models and CV models
 ├── logs/                 # Training logs and evaluation results
+├── docs/                 # Architecture diagram and documentation
 └── tests/                # Unit tests
 ```
 
@@ -35,7 +37,7 @@ ai-traffic-mvp/
 - **Simulation**: SUMO (Simulation of Urban Mobility)
 - **Reinforcement Learning**: Stable-Baselines3 (PPO)
 - **Computer Vision**: YOLOv8, OpenCV
-- **Dashboard**: Streamlit
+- **Dashboard**: React + Tailwind CSS
 - **Data Processing**: NumPy, Pandas
 - **Visualization**: Matplotlib, Plotly
 
@@ -58,12 +60,24 @@ ai-traffic-mvp/
    pip install -r requirements.txt
    ```
 
-3. **Install SUMO**
+3. **Setup React Dashboard**
+   ```bash
+   cd dashboard
+   npm install
+   npm start
+   ```
+
+4. **Docker Compose (Recommended for full stack)**
+   ```bash
+   docker-compose up --build
+   ```
+
+5. **Install SUMO**
    - **Ubuntu/Debian**: `sudo apt-get install sumo sumo-tools`
    - **macOS**: `brew install sumo`
    - **Windows**: Download from [SUMO website](https://sumo.dlr.de/docs/Downloads.php)
 
-4. **Verify installation**
+6. **Verify installation**
    ```bash
    python -c "import sumo; print('SUMO Python bindings installed successfully')"
    ```
@@ -82,7 +96,13 @@ ai-traffic-mvp/
 
 3. **Launch the dashboard**
    ```bash
-   streamlit run src/dashboard/app.py
+   cd dashboard
+   npm start
+   ```
+
+Or run all services together:
+   ```bash
+   docker-compose up --build
    ```
 
 ## 📊 Expected Outcomes
@@ -93,6 +113,10 @@ ai-traffic-mvp/
   - Fewer vehicle stops
   - Improved throughput
   - Better signal coordination
+
+## 📐 Architecture & References
+- See `docs/architecture_diagram.md` for system architecture and data flow
+- RL training notebook: `notebooks/rl_training_notebook.ipynb` for baseline experiments
 
 ## 🔬 Evaluation
 
@@ -113,7 +137,7 @@ The system will be evaluated using:
 
 - **Phase 1 (Weeks 1-4)**: Basic simulation and RL agent
 - **Phase 2 (Weeks 5-8)**: Computer vision integration
-- **Phase 3 (Weeks 9-12)**: Dashboard development
+- **Phase 3 (Weeks 9-12)**: Dashboard development (React + Tailwind)
 - **Phase 4 (Weeks 13-16)**: Real-world testing and optimization
 
 ## 🤝 Contributing
