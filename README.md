@@ -9,7 +9,7 @@ Develop a software prototype that reduces average commute time by **10%** in a s
 ## 🚀 MVP Features
 
 - **Traffic Simulation**: Using SUMO (Simulation of Urban Mobility) for realistic urban traffic scenarios
-- **Reinforcement Learning**: PPO agent to optimize signal timings based on real-time traffic data
+- **Reinforcement Learning**: MA-PPO agents to optimize signal timings based on real-time traffic data
 - **Computer Vision**: YOLOv8 + OpenCV for vehicle detection and counting from traffic cameras
 - **React Dashboard**: Modern UI built with React and Tailwind CSS for live views and manual control
 - **Multi-Service Orchestration**: Docker Compose setup for backend, dashboard, Redis, and SUMO simulation
