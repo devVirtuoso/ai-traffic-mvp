@@ -79,7 +79,7 @@ ai-traffic-mvp/
 
 6. **Verify installation**
    ```bash
-   python -c "import sumo; print('SUMO Python bindings installed successfully')"
+   python -c "import traci; print('SUMO Python bindings installed successfully')"
    ```
 
 ## 🎮 Quick Start
